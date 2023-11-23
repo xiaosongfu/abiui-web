@@ -1,7 +1,6 @@
 {
   "name": "abiui-web",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,9 +8,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@lit-labs/router": "^0.1.3",
     "lit": "^3.0.2"
   },
   "devDependencies": {
+    "prettier": "^3.1.0",
     "typescript": "^5.2.2",
     "vite": "^5.0.0"
   }
