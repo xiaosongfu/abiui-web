@@ -26,13 +26,18 @@
   const chainLabel = new Map(chainOptions.map((c) => [c.id, c.label]));
 
   let walletAddress = "";
-  let accountStatus: "disconnected" | "connecting" | "connected" | "reconnecting" = "disconnected";
+  let accountStatus:
+    | "disconnected"
+    | "connecting"
+    | "connected"
+    | "reconnecting" = "disconnected";
   let contracts: StoredContract[] = [];
   let contractsLoading = false;
   let contractsError = "";
   let submitLoading = false;
   let submitError = "";
   let submitSuccess = "";
+  let connectModalLoading = false;
 
   let form = {
     name: "",
@@ -50,27 +55,14 @@
         throw new Error("无法获取合约列表");
       }
       const data = await res.json();
-      if (Array.isArray(data)) {
-        contracts = data;
-      } else if (Array.isArray(data?.data)) {
-        contracts = data.data;
-      } else {
-        contracts = [];
-      }
+      contracts = data.data ?? [];
     } catch (error) {
       console.error(error);
-      contractsError = error instanceof Error ? error.message : "获取合约列表失败";
+      contractsError =
+        error instanceof Error ? error.message : "获取合约列表失败";
     } finally {
       contractsLoading = false;
     }
-  }
-
-  function requireWallet() {
-    if (!walletAddress) {
-      submitError = "请先连接钱包";
-      return false;
-    }
-    return true;
   }
 
   function parseAbi(raw: string) {
@@ -88,7 +80,7 @@
     event.preventDefault();
     submitError = "";
     submitSuccess = "";
-    if (!requireWallet()) {
+    if (!walletAddress) {
       return;
     }
     try {
@@ -148,7 +140,8 @@
     if (!browser || !appKit) return;
     appKit.subscribeAccount((account) => {
       walletAddress = account.address ?? "";
-      accountStatus = (account.status as typeof accountStatus) ?? "disconnected";
+      accountStatus =
+        (account.status as typeof accountStatus) ?? "disconnected";
       if (walletAddress) {
         fetchContracts(walletAddress);
       } else {
@@ -156,6 +149,20 @@
       }
     });
   });
+
+  async function openWalletModal() {
+    if (!appKit) return;
+    connectModalLoading = true;
+    try {
+      await appKit.open({
+        view: walletAddress ? "Account" : "Connect",
+      });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      connectModalLoading = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -176,15 +183,18 @@
         用最简单的方式掌握复杂合约。
       </p>
       <div class="hero__actions">
-        <appkit-button label="连接钱包" loadingLabel="连接中..." size="lg"></appkit-button>
-        {#if walletAddress}
-          <span class="pill">
-            <span class="dot" data-status={accountStatus}></span>
-            {shorten(walletAddress)}
-          </span>
-        {:else}
-          <span class="pill ghost">未连接</span>
-        {/if}
+        <button
+          class="connect-btn"
+          type="button"
+          onclick={openWalletModal}
+          disabled={connectModalLoading}
+        >
+          {connectModalLoading
+            ? "打开中..."
+            : walletAddress
+              ? `查看钱包 · ${shorten(walletAddress)}`
+              : "连接钱包"}
+        </button>
       </div>
     </div>
     <div class="hero__card">
@@ -202,17 +212,12 @@
   </section>
 
   <section class="grid">
-    <form class="card form" on:submit={handleSubmit}>
+    <form class="card form" onsubmit={handleSubmit}>
       <header>
         <div>
           <h2>保存合约</h2>
           <p>填写合约信息并上传 ABI</p>
         </div>
-        {#if walletAddress}
-          <span class="badge">已连接</span>
-        {:else}
-          <span class="badge warning">请先连接钱包</span>
-        {/if}
       </header>
 
       <label>
@@ -264,7 +269,11 @@
         <p class="notice success">{submitSuccess}</p>
       {/if}
 
-      <button class="primary" type="submit" disabled={submitLoading}>
+      <button
+        class="primary"
+        type="submit"
+        disabled={submitLoading || !walletAddress}
+      >
         {submitLoading ? "保存中..." : "保存合约"}
       </button>
     </form>
@@ -275,7 +284,12 @@
           <h2>我的合约</h2>
           <p>自动读取当前钱包地址的数据</p>
         </div>
-        <button class="ghost" type="button" disabled={contractsLoading} on:click={() => walletAddress && fetchContracts(walletAddress)}>
+        <button
+          class="ghost"
+          type="button"
+          disabled={contractsLoading}
+          onclick={() => walletAddress && fetchContracts(walletAddress)}
+        >
           {contractsLoading ? "刷新中" : "刷新"}
         </button>
       </header>
@@ -292,16 +306,23 @@
         <ul>
           {#each contracts as contract (contract.id ?? `${contract.chain_id}-${contract.contract_address}`)}
             <li>
-              <div>
-                <p class="item-title">{contract.name}</p>
-                <p class="item-secondary">
-                  {chainLabel.get(Number(contract.chain_id)) ?? `Chain ${contract.chain_id}`}
-                  · {contract.contract_address}
-                </p>
-              </div>
-              <span class="badge small">
-                ABI {getAbiLength(contract)}
-              </span>
+              <a
+                class="item-link"
+                data-sveltekit-preload
+                href={`/${walletAddress}/${contract.chain_id}/${contract.contract_address}`}
+              >
+                <div>
+                  <p class="item-title">{contract.name}</p>
+                  <p class="item-secondary">
+                    {chainLabel.get(Number(contract.chain_id)) ??
+                      `Chain ${contract.chain_id}`}
+                    · {contract.contract_address}
+                  </p>
+                </div>
+                <span class="badge small">
+                  ABI {getAbiLength(contract)}
+                </span>
+              </a>
             </li>
           {/each}
         </ul>
@@ -313,7 +334,13 @@
 <style>
   :global(body) {
     margin: 0;
-    font-family: "Inter", "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family:
+      "Inter",
+      "SF Pro Display",
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
     background: radial-gradient(circle at top, #101828, #030712 40%);
     color: #f8fafc;
   }
@@ -371,7 +398,11 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.4), transparent 65%);
+    background: radial-gradient(
+      circle at 30% 30%,
+      rgba(59, 130, 246, 0.4),
+      transparent 65%
+    );
     pointer-events: none;
     z-index: 0;
   }
@@ -399,39 +430,6 @@
   .chip.muted {
     border-style: dashed;
     color: #94a3b8;
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.35rem 0.9rem;
-    border-radius: 999px;
-    background: rgba(226, 232, 240, 0.1);
-    font-size: 0.9rem;
-  }
-
-  .pill.ghost {
-    border: 1px dashed rgba(148, 163, 184, 0.6);
-    color: #94a3b8;
-    background: transparent;
-  }
-
-  .dot {
-    width: 0.55rem;
-    height: 0.55rem;
-    border-radius: 50%;
-    display: inline-flex;
-    background: #22c55e;
-  }
-
-  .dot[data-status="connecting"],
-  .dot[data-status="reconnecting"] {
-    background: #facc15;
-  }
-
-  .dot[data-status="disconnected"] {
-    background: #f87171;
   }
 
   .grid {
@@ -513,6 +511,31 @@
     cursor: progress;
   }
 
+  .connect-btn {
+    border: none;
+    border-radius: 1rem;
+    background: linear-gradient(135deg, #3b82f6, #a855f7);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 0.95rem 1.6rem;
+    cursor: pointer;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  .connect-btn:disabled {
+    opacity: 0.65;
+    cursor: progress;
+    box-shadow: none;
+  }
+
+  .connect-btn:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 20px 40px rgba(59, 130, 246, 0.3);
+  }
+
   .ghost {
     padding: 0.6rem 1rem;
     border-radius: 999px;
@@ -551,13 +574,25 @@
   }
 
   li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 1.2rem;
+    padding: 0;
     border-radius: 1rem;
     background: rgba(15, 23, 42, 0.6);
     border: 1px solid rgba(148, 163, 184, 0.15);
+  }
+
+  .item-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.2rem;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .item-link:hover {
+    background: rgba(59, 130, 246, 0.08);
+    border-radius: inherit;
   }
 
   .item-title {
