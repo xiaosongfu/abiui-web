@@ -2,7 +2,7 @@
 import { browser } from "$app/environment";
 import { createAppKit } from "@reown/appkit";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
-import { sepolia, mainnet } from "@reown/appkit/networks";
+import { defaultNetwork, supportedEvmNetworks } from "$lib/networks";
 
 // Only initialize in browser environment
 let appKit: ReturnType<typeof createAppKit> | undefined = undefined;
@@ -13,7 +13,7 @@ if (browser) {
     throw new Error("VITE_PROJECT_ID is not set");
   }
 
-  const networks = [sepolia, mainnet];
+  const networks = supportedEvmNetworks;
 
   // Create adapter
   const wagmiAdapter = new WagmiAdapter({
@@ -24,8 +24,8 @@ if (browser) {
   // Initialize AppKit
   appKit = createAppKit({
     adapters: [wagmiAdapter],
-    networks: [sepolia, mainnet],
-    defaultNetwork: sepolia,
+    networks,
+    defaultNetwork,
     projectId,
     metadata: {
       name: "abiui",
