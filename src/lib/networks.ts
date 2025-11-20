@@ -63,5 +63,5 @@ export const supportedEvmNetworks: [AppKitNetwork, ...AppKitNetwork[]] = [
   zoraSepolia,
 ];
 
-export const defaultNetwork = sepolia;
+export const defaultNetwork = mainnet;
 
