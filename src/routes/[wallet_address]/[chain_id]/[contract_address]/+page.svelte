@@ -32,6 +32,8 @@
         txHash?: string;
     };
 
+    const ADDRESS_REGEX = /^0x[0-9a-fA-F]{40}$/;
+
     let { data } = $props();
     const routeWalletAddress = data.walletAddress as `0x${string}`;
     const targetChainId = data.chainId;
@@ -51,6 +53,10 @@
     let switchingChain = $state(false);
     let switchError = $state("");
     let copyAbiLoading = $state(false);
+
+    // Temporary contract address editing
+    let isEditingAddress = $state(false);
+    let tempContractAddress = $state(targetAddress);
 
     type ToastMessage = {
         id: number;
@@ -263,7 +269,7 @@
             });
             const result = await client.readContract({
                 abi,
-                address: targetAddress,
+                address: tempContractAddress as `0x${string}`,
                 functionName: fn.name!,
                 args,
             });
@@ -312,7 +318,7 @@
                 chain: viemChain,
                 account: walletAddress as `0x${string}`,
                 abi,
-                address: targetAddress,
+                address: tempContractAddress as `0x${string}`,
                 functionName: fn.name!,
                 args,
             });
@@ -403,6 +409,35 @@
             showToast("复制失败", "error");
         }
     }
+
+    function handleEditAddress() {
+        isEditingAddress = true;
+    }
+
+    function handleCancelEdit() {
+        tempContractAddress = targetAddress;
+        isEditingAddress = false;
+    }
+
+    function handleSaveAddress() {
+        const address = tempContractAddress.trim().toLowerCase();
+        if (!address) {
+            showToast("请输入合约地址", "error");
+            return;
+        }
+        if (!ADDRESS_REGEX.test(address)) {
+            showToast("合约地址格式不正确", "error");
+            return;
+        }
+        isEditingAddress = false;
+        showToast("合约地址已更新", "success");
+    }
+
+    function handleResetAddress() {
+        tempContractAddress = targetAddress;
+        isEditingAddress = false;
+        showToast("已恢复原始合约地址", "success");
+    }
 </script>
 
 <svelte:head>
@@ -422,14 +457,65 @@
                 </div>
                 <span class="divider">·</span>
                 <span class="label">合约地址：</span>
-                <button
-                    type="button"
-                    class="address-text clickable"
-                    onclick={() => copyToClipboard(targetAddress, "address")}
-                    title="点击复制合约地址"
-                >
-                    {targetAddress}
-                </button>
+                {#if isEditingAddress}
+                    <div class="address-edit-container">
+                        <input
+                            type="text"
+                            class="address-input"
+                            bind:value={tempContractAddress}
+                            placeholder="0x..."
+                            spellcheck="false"
+                            onkeydown={(e) => {
+                                if (e.key === "Enter") handleSaveAddress();
+                                if (e.key === "Escape") handleCancelEdit();
+                            }}
+                        />
+                        <button
+                            type="button"
+                            class="edit-btn save"
+                            onclick={handleSaveAddress}
+                            title="保存"
+                        >
+                            ✓
+                        </button>
+                        <button
+                            type="button"
+                            class="edit-btn cancel"
+                            onclick={handleCancelEdit}
+                            title="取消"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                {:else}
+                    <button
+                        type="button"
+                        class="address-text clickable"
+                        onclick={() =>
+                            copyToClipboard(tempContractAddress, "address")}
+                        title="点击复制合约地址"
+                    >
+                        {tempContractAddress}
+                    </button>
+                    <button
+                        type="button"
+                        class="edit-btn"
+                        onclick={handleEditAddress}
+                        title="临时修改合约地址"
+                    >
+                        ✏️
+                    </button>
+                    {#if tempContractAddress !== targetAddress}
+                        <button
+                            type="button"
+                            class="edit-btn reset"
+                            onclick={handleResetAddress}
+                            title="恢复原始地址"
+                        >
+                            ♻️
+                        </button>
+                    {/if}
+                {/if}
                 <span class="divider">·</span>
                 <button
                     class="copy-btn small"
@@ -747,6 +833,64 @@
         border: 1px solid rgba(16, 185, 129, 0.5);
         border-radius: 0.35rem;
         transform: translateY(-1px);
+    }
+
+    .address-edit-container {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .address-input {
+        font-family: "Courier New", monospace;
+        font-size: 0.9rem;
+        color: #cbd5f5;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        border-radius: 0.35rem;
+        padding: 0.25rem 0.5rem;
+        min-width: 340px;
+        max-width: 420px;
+        transition: all 0.2s;
+    }
+
+    .address-input:focus {
+        outline: none;
+        border-color: rgba(16, 185, 129, 0.6);
+        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
+
+    .edit-btn {
+        border: none;
+        border-radius: 0.35rem;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        background: rgba(30, 41, 59, 0.6);
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+
+    .edit-btn:hover {
+        background: rgba(16, 185, 129, 0.2);
+        border-color: rgba(16, 185, 129, 0.5);
+        transform: translateY(-1px);
+    }
+
+    .edit-btn.save:hover {
+        background: rgba(16, 185, 129, 0.3);
+        border-color: rgba(16, 185, 129, 0.6);
+    }
+
+    .edit-btn.cancel:hover {
+        background: rgba(248, 113, 113, 0.2);
+        border-color: rgba(248, 113, 113, 0.5);
+    }
+
+    .edit-btn.reset:hover {
+        background: rgba(250, 204, 21, 0.2);
+        border-color: rgba(250, 204, 21, 0.5);
     }
 
     .divider {
