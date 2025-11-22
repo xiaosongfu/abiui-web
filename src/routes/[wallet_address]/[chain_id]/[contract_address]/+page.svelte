@@ -132,7 +132,11 @@
                     fn.stateMutability === "view" ||
                     fn.stateMutability === "pure",
             );
-            writeMethods = functions.filter((fn) => !readMethods.includes(fn));
+            writeMethods = functions.filter(
+                (fn) =>
+                    fn.stateMutability === "nonpayable" ||
+                    fn.stateMutability === "payable",
+            );
             [...readMethods, ...writeMethods].forEach((fn) => {
                 methodStates[getMethodKey(fn)] = {
                     inputs: fn.inputs?.map(() => "") ?? [],
@@ -486,17 +490,21 @@
                 <span class="label">链：</span>
                 {#if isEditingChainId}
                     <div class="address-edit-container">
-                        <input
-                            type="number"
-                            class="address-input chain-id-input"
+                        <select
+                            class="chain-select"
                             bind:value={tempChainId}
-                            placeholder="Chain ID"
                             onkeydown={(e) => {
                                 if (e.key === "Enter") handleSaveChainId();
                                 if (e.key === "Escape")
                                     handleCancelEditChainId();
                             }}
-                        />
+                        >
+                            {#each supportedEvmNetworks as network}
+                                <option value={Number(network.id)}>
+                                    {network.name} (ID: {network.id})
+                                </option>
+                            {/each}
+                        </select>
                         <button
                             type="button"
                             class="edit-btn save"
@@ -946,9 +954,34 @@
         box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
     }
 
-    .chain-id-input {
-        min-width: 120px !important;
-        max-width: 150px !important;
+    .chain-select {
+        font-family: "Courier New", monospace;
+        font-size: 0.9rem;
+        color: #cbd5f5;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        border-radius: 0.35rem;
+        padding: 0.25rem 0.5rem;
+        min-width: 200px;
+        max-width: 300px;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+
+    .chain-select:hover {
+        border-color: rgba(148, 163, 184, 0.6);
+    }
+
+    .chain-select:focus {
+        outline: none;
+        border-color: rgba(16, 185, 129, 0.6);
+        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
+
+    .chain-select option {
+        background: rgba(15, 23, 42, 0.95);
+        color: #cbd5f5;
+        padding: 0.5rem;
     }
 
     .edit-btn {

@@ -53,7 +53,7 @@
         contractsError = "";
         hasMoreContracts = false;
         try {
-            const res = await fetch(`${API_BASE}/${address}?limit=6`);
+            const res = await fetch(`${API_BASE}/${address}?limit=5`);
             if (!res.ok) {
                 throw new Error("无法获取合约列表");
             }
@@ -64,9 +64,6 @@
                 contracts = result.slice(0, 5);
             } else {
                 contracts = result;
-
-                //
-                hasMoreContracts = true;
             }
         } catch (error) {
             console.error(error);
@@ -507,8 +504,8 @@
     }
 
     textarea {
-        font-family:
-            "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+        font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas,
+            monospace;
     }
 
     button {
