@@ -58,6 +58,10 @@
     let isEditingAddress = $state(false);
     let tempContractAddress = $state(targetAddress);
 
+    // Temporary chain ID editing
+    let isEditingChainId = $state(false);
+    let tempChainId = $state(targetChainId);
+
     type ToastMessage = {
         id: number;
         text: string;
@@ -177,8 +181,7 @@
     }
 
     function updateChainMismatch() {
-        chainMismatch =
-            Boolean(activeChainId) && activeChainId !== targetChainId;
+        chainMismatch = Boolean(activeChainId) && activeChainId !== tempChainId;
     }
 
     function updateWalletMismatch() {
@@ -253,7 +256,10 @@
         const key = getMethodKey(fn);
         const state = methodStates[key];
         if (!abi || !state) return;
-        if (!viemChain) {
+        const tempViemChain = supportedEvmNetworks.find(
+            (n) => Number(n.id) === tempChainId,
+        ) as unknown as Chain | undefined;
+        if (!tempViemChain) {
             state.error = "该链暂未支持调用";
             state.loading = false;
             return;
@@ -264,7 +270,7 @@
         try {
             const args = buildArgs(fn, key);
             const client = createPublicClient({
-                chain: viemChain,
+                chain: tempViemChain,
                 transport: http(),
             });
             const result = await client.readContract({
@@ -302,7 +308,10 @@
                     throw new Error("请切换至目标链后再操作");
                 }
             }
-            if (!viemChain) {
+            const tempViemChain = supportedEvmNetworks.find(
+                (n) => Number(n.id) === tempChainId,
+            ) as unknown as Chain | undefined;
+            if (!tempViemChain) {
                 throw new Error("该链暂未支持发送交易");
             }
             const provider = appKit?.getWalletProvider();
@@ -310,12 +319,12 @@
                 throw new Error("无法获取钱包 Provider");
             }
             const walletClient = createWalletClient({
-                chain: viemChain,
+                chain: tempViemChain,
                 transport: custom(provider as any),
             });
             const args = buildArgs(fn, key);
             const txHash = await walletClient.writeContract({
-                chain: viemChain,
+                chain: tempViemChain,
                 account: walletAddress as `0x${string}`,
                 abi,
                 address: tempContractAddress as `0x${string}`,
@@ -438,6 +447,31 @@
         isEditingAddress = false;
         showToast("已恢复原始合约地址", "success");
     }
+
+    function handleEditChainId() {
+        isEditingChainId = true;
+    }
+
+    function handleCancelEditChainId() {
+        tempChainId = targetChainId;
+        isEditingChainId = false;
+    }
+
+    function handleSaveChainId() {
+        const chainId = Number(tempChainId);
+        if (!chainId || isNaN(chainId)) {
+            showToast("请输入有效的链 ID", "error");
+            return;
+        }
+        isEditingChainId = false;
+        showToast("链 ID 已更新", "success");
+    }
+
+    function handleResetChainId() {
+        tempChainId = targetChainId;
+        isEditingChainId = false;
+        showToast("已恢复原始链 ID", "success");
+    }
 </script>
 
 <svelte:head>
@@ -450,11 +484,63 @@
             <h1>{contract?.name ?? "合约名称"}</h1>
             <div class="address-row">
                 <span class="label">链：</span>
-                <div class="chain-with-copy">
-                    <span class="address-text"
-                        >{targetNetwork?.name ?? targetChainId}</span
+                {#if isEditingChainId}
+                    <div class="address-edit-container">
+                        <input
+                            type="number"
+                            class="address-input chain-id-input"
+                            bind:value={tempChainId}
+                            placeholder="Chain ID"
+                            onkeydown={(e) => {
+                                if (e.key === "Enter") handleSaveChainId();
+                                if (e.key === "Escape")
+                                    handleCancelEditChainId();
+                            }}
+                        />
+                        <button
+                            type="button"
+                            class="edit-btn save"
+                            onclick={handleSaveChainId}
+                            title="保存"
+                        >
+                            ✓
+                        </button>
+                        <button
+                            type="button"
+                            class="edit-btn cancel"
+                            onclick={handleCancelEditChainId}
+                            title="取消"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                {:else}
+                    <div class="chain-with-copy">
+                        <span class="address-text"
+                            >{supportedEvmNetworks.find(
+                                (n) => Number(n.id) === tempChainId,
+                            )?.name ?? tempChainId}</span
+                        >
+                    </div>
+                    <button
+                        type="button"
+                        class="edit-btn"
+                        onclick={handleEditChainId}
+                        title="临时修改链 ID"
                     >
-                </div>
+                        ✏️
+                    </button>
+                    {#if tempChainId !== targetChainId}
+                        <button
+                            type="button"
+                            class="edit-btn reset"
+                            onclick={handleResetChainId}
+                            title="恢复原始链 ID"
+                        >
+                            ♻️
+                        </button>
+                    {/if}
+                {/if}
                 <span class="divider">·</span>
                 <span class="label">合约地址：</span>
                 {#if isEditingAddress}
@@ -539,7 +625,7 @@
     {#if chainMismatch}
         <div class="chain-warning">
             <p>
-                当前钱包链 ID ({activeChainId ?? "未知"}) 与目标链 ({targetChainId})
+                当前钱包链 ID ({activeChainId ?? "未知"}) 与目标链 ({tempChainId})
                 不一致。
             </p>
             <div class="chain-actions">
@@ -550,7 +636,7 @@
                 >
                     {switchingChain
                         ? "切换中..."
-                        : `切换至 ${targetNetwork?.name ?? targetChainId}`}
+                        : `切换至 ${supportedEvmNetworks.find((n) => Number(n.id) === tempChainId)?.name ?? tempChainId}`}
                 </button>
                 {#if switchError}
                     <span class="notice error">{switchError}</span>
@@ -858,6 +944,11 @@
         outline: none;
         border-color: rgba(16, 185, 129, 0.6);
         box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
+
+    .chain-id-input {
+        min-width: 120px !important;
+        max-width: 150px !important;
     }
 
     .edit-btn {
