@@ -243,11 +243,18 @@
     }
 
     async function ensureChain() {
-        if (!appKit || !targetNetwork || !chainMismatch) return;
+        if (!appKit || !chainMismatch) return;
+        const tempNetwork = supportedEvmNetworks.find(
+            (n) => Number(n.id) === tempChainId,
+        );
+        if (!tempNetwork) {
+            switchError = "目标链不在支持列表中";
+            return;
+        }
         switchingChain = true;
         switchError = "";
         try {
-            await appKit.switchNetwork(targetNetwork);
+            await appKit.switchNetwork(tempNetwork);
         } catch (error) {
             console.error(error);
             switchError = error instanceof Error ? error.message : "切换链失败";
@@ -468,12 +475,14 @@
             return;
         }
         isEditingChainId = false;
+        updateChainMismatch();
         showToast("链 ID 已更新", "success");
     }
 
     function handleResetChainId() {
         tempChainId = targetChainId;
         isEditingChainId = false;
+        updateChainMismatch();
         showToast("已恢复原始链 ID", "success");
     }
 </script>
