@@ -358,7 +358,18 @@
     }
 
     function methodLabel(fn: AbiFunction) {
-        return `${fn.name ?? "function"}(${fn.inputs?.map((i) => i.type).join(", ") ?? ""})`;
+        let returns = "";
+        if (fn.outputs?.length > 0) {
+            returns =
+                "returns" +
+                (fn.outputs?.map((o) => o.type + " " + o.name).join(", ") ??
+                    "");
+        }
+
+        const parameters =
+            fn.inputs?.map((i) => i.type + " " + i.name).join(", ") ?? "";
+
+        return `${fn.name ?? "function"}(${parameters}) ${returns}`;
     }
 
     onMount(() => {
@@ -1235,9 +1246,9 @@
     }
 
     .ghost {
-        background: transparent;
-        border: 1px solid rgba(148, 163, 184, 0.4);
-        color: #cbd5f5;
+        background: linear-gradient(135deg, #10b981, #34d399);
+        border: none;
+        color: white;
     }
 
     .notice {
