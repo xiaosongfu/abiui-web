@@ -8,6 +8,7 @@
         createWalletClient,
         custom,
         http,
+        toFunctionSelector,
         type Abi,
         type AbiFunction,
         type AbiParameter,
@@ -361,9 +362,10 @@
         let returns = "";
         if (fn.outputs?.length > 0) {
             returns =
-                "returns" +
+                "returns (" +
                 (fn.outputs?.map((o) => o.type + " " + o.name).join(", ") ??
-                    "");
+                    "") +
+                ")";
         }
 
         const parameters =
@@ -724,6 +726,11 @@
                                         <div>
                                             <p class="method-title">
                                                 {method.name}
+                                                <span class="function-selector"
+                                                    >{toFunctionSelector(
+                                                        method,
+                                                    )}</span
+                                                >
                                             </p>
                                             <p class="method-signature">
                                                 {methodLabel(method)}
@@ -795,6 +802,11 @@
                                         <div>
                                             <p class="method-title">
                                                 {method.name}
+                                                <span class="function-selector"
+                                                    >{toFunctionSelector(
+                                                        method,
+                                                    )}</span
+                                                >
                                             </p>
                                             <p class="method-signature">
                                                 {methodLabel(method)}
@@ -1184,6 +1196,14 @@
     .method-title {
         margin: 0;
         font-weight: 600;
+    }
+
+    .function-selector {
+        font-weight: 400;
+        font-size: 0.85rem;
+        color: #94a3b8;
+        margin-left: 0.5rem;
+        font-family: monospace;
     }
 
     .method-signature {
