@@ -239,7 +239,11 @@
         if (value === undefined) return "无返回值";
         if (typeof value === "string") return value;
         if (typeof value === "bigint") return value.toString();
-        return JSON.stringify(value, null, 2);
+        return JSON.stringify(
+            value,
+            (key, val) => (typeof val === "bigint" ? val.toString() : val),
+            2,
+        );
     }
 
     async function ensureChain() {
