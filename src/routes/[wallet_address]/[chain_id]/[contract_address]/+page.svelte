@@ -9,7 +9,12 @@
         custom,
         http,
         toFunctionSelector,
+        decodeErrorResult,
+        decodeEventLog,
+        decodeFunctionData,
+        decodeFunctionResult,
         type Abi,
+        type AbiEvent,
         type AbiFunction,
         type AbiParameter,
         type Chain,
@@ -81,6 +86,48 @@
     let readMethods = $state<AbiFunction[]>([]);
     let writeMethods = $state<AbiFunction[]>([]);
     let methodStates = $state<Record<string, MethodState>>({});
+
+    // Decoder states
+    let errorDecodeInput = $state("");
+    let errorDecodeResult = $state("");
+    let errorDecodeError = $state("");
+    let errorDecodeLoading = $state(false);
+
+    let eventDecodeData = $state("");
+    let eventDecodeTopic0 = $state("");
+    let eventDecodeTopic1 = $state("");
+    let eventDecodeTopic2 = $state("");
+    let eventDecodeTopic3 = $state("");
+    let eventDecodeResult = $state("");
+    let eventDecodeError = $state("");
+    let eventDecodeLoading = $state(false);
+
+    let calldataDecodeInput = $state("");
+    let calldataDecodeResult = $state("");
+    let calldataDecodeError = $state("");
+    let calldataDecodeLoading = $state(false);
+
+    let returnDecodeInput = $state("");
+    let returnDecodeFunctionSelector = $state("");
+    let returnDecodeResult = $state("");
+    let returnDecodeError = $state("");
+    let returnDecodeLoading = $state(false);
+
+    // Extract ABI items by type
+    type AbiErrorItem = Extract<Abi[number], { type: "error" }>;
+    let abiErrors = $derived<AbiErrorItem[]>(
+        (abi?.filter((item) => item.type === "error") as AbiErrorItem[]) ?? [],
+    );
+    let abiEvents = $derived<AbiEvent[]>(
+        (abi?.filter((item) => item.type === "event") as AbiEvent[]) ?? [],
+    );
+    let abiFunctions = $derived<AbiFunction[]>(
+        (abi?.filter((item) => item.type === "function") as AbiFunction[]) ??
+            [],
+    );
+    let abiFunctionsWithOutputs = $derived<AbiFunction[]>(
+        abiFunctions.filter((fn) => fn.outputs && fn.outputs.length > 0),
+    );
 
     const formatter = new Intl.DateTimeFormat("zh-CN", {
         dateStyle: "medium",
@@ -355,6 +402,203 @@
                 error instanceof Error ? error.message : "发送交易失败";
         } finally {
             state.loading = false;
+        }
+    }
+
+    // Decoder functions
+    function decodeError() {
+        if (!abi) {
+            errorDecodeError = "请先加载合约 ABI";
+            return;
+        }
+        errorDecodeLoading = true;
+        errorDecodeError = "";
+        errorDecodeResult = "";
+        try {
+            const data = errorDecodeInput.trim() as `0x${string}`;
+            if (!data.startsWith("0x")) {
+                throw new Error("数据必须以 0x 开头");
+            }
+            const result = decodeErrorResult({
+                abi,
+                data,
+            });
+            errorDecodeResult = JSON.stringify(
+                {
+                    errorName: result.errorName,
+                    args: result.args,
+                },
+                (key, val) => (typeof val === "bigint" ? val.toString() : val),
+                2,
+            );
+        } catch (error) {
+            console.error(error);
+            errorDecodeError =
+                error instanceof Error ? error.message : "解码失败";
+        } finally {
+            errorDecodeLoading = false;
+        }
+    }
+
+    function decodeEvent() {
+        if (!abi) {
+            eventDecodeError = "请先加载合约 ABI";
+            return;
+        }
+        eventDecodeLoading = true;
+        eventDecodeError = "";
+        eventDecodeResult = "";
+        try {
+            const data = eventDecodeData.trim() as `0x${string}`;
+            const topics: `0x${string}`[] = [];
+            if (eventDecodeTopic0.trim()) {
+                topics.push(eventDecodeTopic0.trim() as `0x${string}`);
+            }
+            if (eventDecodeTopic1.trim()) {
+                topics.push(eventDecodeTopic1.trim() as `0x${string}`);
+            }
+            if (eventDecodeTopic2.trim()) {
+                topics.push(eventDecodeTopic2.trim() as `0x${string}`);
+            }
+            if (eventDecodeTopic3.trim()) {
+                topics.push(eventDecodeTopic3.trim() as `0x${string}`);
+            }
+            if (topics.length === 0) {
+                throw new Error("至少需要提供 topic0 (事件签名)");
+            }
+            const result = decodeEventLog({
+                abi,
+                data: data || "0x",
+                topics: topics as [`0x${string}`, ...`0x${string}`[]],
+            });
+            eventDecodeResult = JSON.stringify(
+                {
+                    eventName: result.eventName,
+                    args: result.args,
+                },
+                (key, val) => (typeof val === "bigint" ? val.toString() : val),
+                2,
+            );
+        } catch (error) {
+            console.error(error);
+            eventDecodeError =
+                error instanceof Error ? error.message : "解码失败";
+        } finally {
+            eventDecodeLoading = false;
+        }
+    }
+
+    function decodeCalldata() {
+        if (!abi) {
+            calldataDecodeError = "请先加载合约 ABI";
+            return;
+        }
+        calldataDecodeLoading = true;
+        calldataDecodeError = "";
+        calldataDecodeResult = "";
+        try {
+            const data = calldataDecodeInput.trim() as `0x${string}`;
+            if (!data.startsWith("0x")) {
+                throw new Error("数据必须以 0x 开头");
+            }
+            if (data.length < 10) {
+                throw new Error("Calldata 至少需要 4 字节函数选择器");
+            }
+            const result = decodeFunctionData({
+                abi,
+                data,
+            });
+            calldataDecodeResult = JSON.stringify(
+                {
+                    functionName: result.functionName,
+                    args: result.args,
+                },
+                (key, val) => (typeof val === "bigint" ? val.toString() : val),
+                2,
+            );
+        } catch (error) {
+            console.error(error);
+            calldataDecodeError =
+                error instanceof Error ? error.message : "解码失败";
+        } finally {
+            calldataDecodeLoading = false;
+        }
+    }
+
+    function decodeReturn() {
+        if (!abi) {
+            returnDecodeError = "请先加载合约 ABI";
+            return;
+        }
+        if (!returnDecodeFunctionSelector.trim()) {
+            returnDecodeError = "请选择或输入函数签名/选择器";
+            return;
+        }
+        returnDecodeLoading = true;
+        returnDecodeError = "";
+        returnDecodeResult = "";
+        try {
+            const data = returnDecodeInput.trim() as `0x${string}`;
+            if (!data.startsWith("0x")) {
+                throw new Error("数据必须以 0x 开头");
+            }
+            // Find the function by selector or name
+            const selectorInput = returnDecodeFunctionSelector.trim();
+            let targetFunction: AbiFunction | undefined;
+
+            for (const fn of abiFunctions) {
+                const fnSelector = toFunctionSelector(fn);
+                if (fnSelector === selectorInput || fn.name === selectorInput) {
+                    targetFunction = fn;
+                    break;
+                }
+            }
+
+            if (!targetFunction) {
+                throw new Error(`未找到匹配的函数: ${selectorInput}`);
+            }
+
+            const result = decodeFunctionResult({
+                abi,
+                functionName: targetFunction.name,
+                data,
+            });
+
+            // Format the result with output names if available
+            let formattedResult: unknown;
+            if (targetFunction.outputs && targetFunction.outputs.length > 0) {
+                if (targetFunction.outputs.length === 1) {
+                    formattedResult = {
+                        [`${targetFunction.outputs[0].name || "result"}`]:
+                            result,
+                    };
+                } else if (Array.isArray(result)) {
+                    const obj: Record<string, unknown> = {};
+                    targetFunction.outputs.forEach((output, index) => {
+                        obj[output.name || `arg${index}`] = result[index];
+                    });
+                    formattedResult = obj;
+                } else {
+                    formattedResult = result;
+                }
+            } else {
+                formattedResult = result;
+            }
+
+            returnDecodeResult = JSON.stringify(
+                {
+                    functionName: targetFunction.name,
+                    result: formattedResult,
+                },
+                (key, val) => (typeof val === "bigint" ? val.toString() : val),
+                2,
+            );
+        } catch (error) {
+            console.error(error);
+            returnDecodeError =
+                error instanceof Error ? error.message : "解码失败";
+        } finally {
+            returnDecodeLoading = false;
         }
     }
 
@@ -712,7 +956,7 @@
             <div class="methods-grid">
                 <div class="card">
                     <header>
-                        <h2>读方法</h2>
+                        <h2>读合约</h2>
                         <p>不消耗 gas，可直接查询链上数据</p>
                     </header>
                     {#if readMethods.length === 0}
@@ -788,8 +1032,8 @@
 
                 <div class="card">
                     <header>
-                        <h2>写方法</h2>
-                        <p>需要发送交易，消耗 gas</p>
+                        <h2>写合约</h2>
+                        <p>需要发送交易，会消耗 gas</p>
                     </header>
                     {#if writeMethods.length === 0}
                         <p class="empty">暂无可用的写方法</p>
@@ -866,6 +1110,273 @@
             </div>
         {/if}
     </section>
+
+    <!-- Decoder Section -->
+    {#if abi && !abiError}
+        <section class="contract-panel decoder-section">
+            <h2 class="section-title">🔍 ABI 解码</h2>
+            <p class="section-desc">使用当前合约的 ABI 解码链上数据</p>
+
+            <div class="decoder-grid">
+                <!-- Error Decoder -->
+                <div class="card decoder-card">
+                    <header>
+                        <h3>自定义错误解码</h3>
+                        <p>解码合约抛出的自定义错误数据</p>
+                    </header>
+                    <div class="decoder-content">
+                        <label>
+                            <span>错误数据 (0x...)</span>
+                            <textarea
+                                placeholder="输入错误返回数据，例如: 0x..."
+                                bind:value={errorDecodeInput}
+                                rows="3"
+                            ></textarea>
+                        </label>
+                        <button
+                            class="ghost"
+                            onclick={decodeError}
+                            disabled={errorDecodeLoading ||
+                                !errorDecodeInput.trim()}
+                        >
+                            {errorDecodeLoading ? "解码中..." : "解码错误"}
+                        </button>
+                        {#if errorDecodeError}
+                            <p class="notice error">{errorDecodeError}</p>
+                        {/if}
+                        {#if errorDecodeResult}
+                            <pre class="result">{errorDecodeResult}</pre>
+                        {/if}
+                        {#if abiErrors.length > 0}
+                            <details class="abi-items-list">
+                                <summary
+                                    >已定义的错误 ({abiErrors.length})</summary
+                                >
+                                <ul>
+                                    {#each abiErrors as error}
+                                        <li>
+                                            <code
+                                                >{error.name}({error.inputs
+                                                    ?.map(
+                                                        (i: { type: string }) =>
+                                                            i.type,
+                                                    )
+                                                    .join(", ") ?? ""})</code
+                                            >
+                                        </li>
+                                    {/each}
+                                </ul>
+                            </details>
+                        {/if}
+                    </div>
+                </div>
+
+                <!-- Event Decoder -->
+                <div class="card decoder-card">
+                    <header>
+                        <h3>事件解码</h3>
+                        <p>解码事件日志数据</p>
+                    </header>
+                    <div class="decoder-content">
+                        <label>
+                            <span>Topic0 (事件签名) *</span>
+                            <input
+                                type="text"
+                                placeholder="0x..."
+                                bind:value={eventDecodeTopic0}
+                            />
+                        </label>
+                        <label>
+                            <span>Topic1 (可选)</span>
+                            <input
+                                type="text"
+                                placeholder="0x..."
+                                bind:value={eventDecodeTopic1}
+                            />
+                        </label>
+                        <label>
+                            <span>Topic2 (可选)</span>
+                            <input
+                                type="text"
+                                placeholder="0x..."
+                                bind:value={eventDecodeTopic2}
+                            />
+                        </label>
+                        <label>
+                            <span>Topic3 (可选)</span>
+                            <input
+                                type="text"
+                                placeholder="0x..."
+                                bind:value={eventDecodeTopic3}
+                            />
+                        </label>
+                        <label>
+                            <span>Data (非索引参数)</span>
+                            <textarea
+                                placeholder="事件的 data 字段，例如: 0x..."
+                                bind:value={eventDecodeData}
+                                rows="2"
+                            ></textarea>
+                        </label>
+                        <button
+                            class="ghost"
+                            onclick={decodeEvent}
+                            disabled={eventDecodeLoading ||
+                                !eventDecodeTopic0.trim()}
+                        >
+                            {eventDecodeLoading ? "解码中..." : "解码事件"}
+                        </button>
+                        {#if eventDecodeError}
+                            <p class="notice error">{eventDecodeError}</p>
+                        {/if}
+                        {#if eventDecodeResult}
+                            <pre class="result">{eventDecodeResult}</pre>
+                        {/if}
+                        {#if abiEvents.length > 0}
+                            <details class="abi-items-list">
+                                <summary
+                                    >已定义的事件 ({abiEvents.length})</summary
+                                >
+                                <ul>
+                                    {#each abiEvents as event}
+                                        <li>
+                                            <code
+                                                >{event.name}({event.inputs
+                                                    ?.map(
+                                                        (i) =>
+                                                            (i.indexed
+                                                                ? "indexed "
+                                                                : "") + i.type,
+                                                    )
+                                                    .join(", ") ?? ""})</code
+                                            >
+                                        </li>
+                                    {/each}
+                                </ul>
+                            </details>
+                        {/if}
+                    </div>
+                </div>
+
+                <!-- Calldata Decoder -->
+                <div class="card decoder-card">
+                    <header>
+                        <h3>函数入参解码</h3>
+                        <p>解码交易的 calldata (input data)</p>
+                    </header>
+                    <div class="decoder-content">
+                        <label>
+                            <span>Calldata (0x...)</span>
+                            <textarea
+                                placeholder="输入交易的 input data，例如: 0x..."
+                                bind:value={calldataDecodeInput}
+                                rows="3"
+                            ></textarea>
+                        </label>
+                        <button
+                            class="ghost"
+                            onclick={decodeCalldata}
+                            disabled={calldataDecodeLoading ||
+                                !calldataDecodeInput.trim()}
+                        >
+                            {calldataDecodeLoading ? "解码中..." : "解码入参"}
+                        </button>
+                        {#if calldataDecodeError}
+                            <p class="notice error">{calldataDecodeError}</p>
+                        {/if}
+                        {#if calldataDecodeResult}
+                            <pre class="result">{calldataDecodeResult}</pre>
+                        {/if}
+                    </div>
+                </div>
+
+                <!-- Return Value Decoder -->
+                <div class="card decoder-card">
+                    <header>
+                        <h3>函数返回值解码</h3>
+                        <p>解码函数调用的返回数据</p>
+                    </header>
+                    <div class="decoder-content">
+                        <label>
+                            <span>函数选择器或函数名 *</span>
+                            <div class="function-selector-input">
+                                <input
+                                    type="text"
+                                    placeholder="输入函数选择器 (0x...) 或函数名"
+                                    bind:value={returnDecodeFunctionSelector}
+                                    list="function-list"
+                                />
+                                <datalist id="function-list">
+                                    {#each abiFunctionsWithOutputs as fn}
+                                        <option value={toFunctionSelector(fn)}
+                                            >{fn.name} - {toFunctionSelector(
+                                                fn,
+                                            )}</option
+                                        >
+                                    {/each}
+                                </datalist>
+                            </div>
+                        </label>
+                        <label>
+                            <span>返回数据 (0x...)</span>
+                            <textarea
+                                placeholder="输入函数返回的数据，例如: 0x..."
+                                bind:value={returnDecodeInput}
+                                rows="3"
+                            ></textarea>
+                        </label>
+                        <button
+                            class="ghost"
+                            onclick={decodeReturn}
+                            disabled={returnDecodeLoading ||
+                                !returnDecodeInput.trim() ||
+                                !returnDecodeFunctionSelector.trim()}
+                        >
+                            {returnDecodeLoading ? "解码中..." : "解码返回值"}
+                        </button>
+                        {#if returnDecodeError}
+                            <p class="notice error">{returnDecodeError}</p>
+                        {/if}
+                        {#if returnDecodeResult}
+                            <pre class="result">{returnDecodeResult}</pre>
+                        {/if}
+                        {#if abiFunctionsWithOutputs.length > 0}
+                            <details class="abi-items-list">
+                                <summary
+                                    >可用函数 ({abiFunctionsWithOutputs.length})</summary
+                                >
+                                <ul>
+                                    {#each abiFunctionsWithOutputs as fn}
+                                        <li>
+                                            <button
+                                                type="button"
+                                                class="function-item-btn"
+                                                onclick={() => {
+                                                    returnDecodeFunctionSelector =
+                                                        toFunctionSelector(fn);
+                                                }}
+                                            >
+                                                <span class="fn-selector"
+                                                    >{toFunctionSelector(
+                                                        fn,
+                                                    )}</span
+                                                >
+                                                {fn.name}({fn.inputs
+                                                    ?.map((i) => i.type)
+                                                    .join(", ") ?? ""}) → ({fn.outputs
+                                                    ?.map((o) => o.type)
+                                                    .join(", ") ?? ""})
+                                            </button>
+                                        </li>
+                                    {/each}
+                                </ul>
+                            </details>
+                        {/if}
+                    </div>
+                </div>
+            </div>
+        </section>
+    {/if}
 
     <div class="toast-container">
         {#each toastMessages as message (message.id)}
@@ -1308,6 +1819,135 @@
         margin: 2rem 0;
         text-align: center;
         color: #94a3b8;
+    }
+
+    /* Decoder styles */
+    .decoder-section {
+        margin-top: 1rem;
+    }
+
+    .section-title {
+        margin: 0 0 0.25rem;
+        font-size: 1.5rem;
+    }
+
+    .section-desc {
+        margin: 0 0 1.5rem;
+        color: #94a3b8;
+    }
+
+    .decoder-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .decoder-card header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+    }
+
+    .decoder-card header p {
+        margin: 0.2rem 0 0;
+        color: #94a3b8;
+        font-size: 0.85rem;
+    }
+
+    .decoder-content {
+        margin-top: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.8rem;
+    }
+
+    .decoder-content textarea {
+        border-radius: 0.8rem;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: rgba(15, 23, 42, 0.6);
+        color: #f8fafc;
+        padding: 0.7rem 0.9rem;
+        font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+        font-size: 0.85rem;
+        resize: vertical;
+        min-height: 60px;
+    }
+
+    .decoder-content textarea:focus {
+        outline: none;
+        border-color: rgba(16, 185, 129, 0.6);
+        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
+
+    .function-selector-input {
+        position: relative;
+    }
+
+    .function-selector-input input {
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .abi-items-list {
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #94a3b8;
+    }
+
+    .abi-items-list summary {
+        cursor: pointer;
+        padding: 0.4rem 0;
+        user-select: none;
+    }
+
+    .abi-items-list summary:hover {
+        color: #e2e8f0;
+    }
+
+    .abi-items-list ul {
+        margin: 0.5rem 0 0;
+        padding-left: 1rem;
+        list-style: none;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .abi-items-list li {
+        padding: 0.25rem 0;
+    }
+
+    .abi-items-list code {
+        font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+        font-size: 0.8rem;
+        background: rgba(15, 23, 42, 0.5);
+        padding: 0.2rem 0.4rem;
+        border-radius: 0.25rem;
+        display: inline-block;
+        word-break: break-all;
+    }
+
+    .abi-items-list .function-item-btn {
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+        font-size: 0.8rem;
+        background: rgba(15, 23, 42, 0.5);
+        padding: 0.2rem 0.4rem;
+        border-radius: 0.25rem;
+        display: inline-block;
+        word-break: break-all;
+        border: none;
+        color: #94a3b8;
+        text-align: left;
+    }
+
+    .abi-items-list .function-item-btn:hover {
+        background: rgba(16, 185, 129, 0.2);
+        color: #a7f3d0;
+    }
+
+    .fn-selector {
+        color: #64748b;
+        margin-right: 0.5rem;
     }
 
     .toast-container {
