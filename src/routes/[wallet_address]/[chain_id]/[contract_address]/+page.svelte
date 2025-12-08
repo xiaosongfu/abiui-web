@@ -13,6 +13,7 @@
         decodeEventLog,
         decodeFunctionData,
         decodeFunctionResult,
+        parseEther,
         type Abi,
         type AbiEvent,
         type AbiFunction,
@@ -36,6 +37,7 @@
         error: string;
         result?: string;
         txHash?: string;
+        value?: string; // ETH value for payable methods
     };
 
     const ADDRESS_REGEX = /^0x[0-9a-fA-F]{40}$/;
@@ -55,7 +57,6 @@
     >("disconnected");
     let activeChainId = $state<number | undefined>(undefined);
     let chainMismatch = $state(false);
-    let walletMismatch = $state(false);
     let switchingChain = $state(false);
     let switchError = $state("");
     let copyAbiLoading = $state(false);
@@ -190,6 +191,7 @@
                     inputs: fn.inputs?.map(() => "") ?? [],
                     loading: false,
                     error: "",
+                    value: fn.stateMutability === "payable" ? "" : undefined,
                 };
             });
         } catch (error) {
@@ -234,12 +236,6 @@
 
     function updateChainMismatch() {
         chainMismatch = Boolean(activeChainId) && activeChainId !== tempChainId;
-    }
-
-    function updateWalletMismatch() {
-        walletMismatch =
-            Boolean(walletAddress) &&
-            walletAddress.toLowerCase() !== routeWalletAddress.toLowerCase();
     }
 
     function handleInputChange(
@@ -362,9 +358,6 @@
             if (!walletAddress) {
                 throw new Error("请先连接钱包");
             }
-            if (walletMismatch) {
-                throw new Error("请切换至该合约所属的钱包地址后再操作");
-            }
             if (chainMismatch) {
                 await ensureChain();
                 if (chainMismatch) {
@@ -386,14 +379,30 @@
                 transport: custom(provider as any),
             });
             const args = buildArgs(fn, key);
-            const txHash = await walletClient.writeContract({
+            const txOptions: {
+                chain: Chain;
+                account: `0x${string}`;
+                abi: Abi;
+                address: `0x${string}`;
+                functionName: string;
+                args: unknown[];
+                value?: bigint;
+            } = {
                 chain: tempViemChain,
                 account: walletAddress as `0x${string}`,
                 abi,
                 address: tempContractAddress as `0x${string}`,
                 functionName: fn.name!,
                 args,
-            });
+            };
+            // Add value for payable methods
+            if (fn.stateMutability === "payable" && state.value) {
+                const trimmedValue = state.value.trim();
+                if (trimmedValue) {
+                    txOptions.value = parseEther(trimmedValue);
+                }
+            }
+            const txHash = await walletClient.writeContract(txOptions);
             state.txHash = txHash;
             state.result = undefined;
         } catch (error) {
@@ -602,6 +611,99 @@
         }
     }
 
+    // Generate example value for a parameter type
+    function generateExampleValue(param: AbiParameter): unknown {
+        const type = param.type;
+
+        // Handle tuple (struct) types
+        if (type === "tuple" || type.startsWith("tuple")) {
+            const components = (
+                param as AbiParameter & { components?: AbiParameter[] }
+            ).components;
+            if (components) {
+                const obj: Record<string, unknown> = {};
+                for (const comp of components) {
+                    obj[comp.name || "field"] = generateExampleValue(comp);
+                }
+                // Handle tuple array
+                if (type.includes("[")) {
+                    return [obj];
+                }
+                return obj;
+            }
+            return {};
+        }
+
+        // Handle arrays
+        if (type.includes("[")) {
+            const baseType = type.replace(/\[\d*\]$/, "");
+            const baseExample = generateExampleValue({
+                ...param,
+                type: baseType,
+            });
+            return [baseExample];
+        }
+
+        // Handle basic types
+        if (type.startsWith("uint") || type.startsWith("int")) {
+            return "0";
+        }
+        if (type === "address") {
+            return "0x0000000000000000000000000000000000000000";
+        }
+        if (type === "bool") {
+            return false;
+        }
+        if (type.startsWith("bytes")) {
+            return "0x";
+        }
+        if (type === "string") {
+            return "";
+        }
+        return "";
+    }
+
+    // Generate placeholder text for input
+    function getInputPlaceholder(param: AbiParameter): string {
+        const type = param.type;
+
+        if (type === "tuple" || type.startsWith("tuple")) {
+            return "输入 JSON 格式的结构体";
+        }
+        if (type.includes("[")) {
+            return "输入 JSON 格式的数组";
+        }
+        if (type.startsWith("uint") || type.startsWith("int")) {
+            return "输入整数";
+        }
+        if (type === "address") {
+            return "输入地址 0x...";
+        }
+        if (type === "bool") {
+            return "输入 true 或 false";
+        }
+        if (type.startsWith("bytes")) {
+            return "输入十六进制 0x...";
+        }
+        return "输入参数";
+    }
+
+    // Format tuple structure for display
+    function formatTupleStructure(param: AbiParameter): string {
+        const components = (
+            param as AbiParameter & { components?: AbiParameter[] }
+        ).components;
+        if (!components) return "{}";
+
+        const example = generateExampleValue(param);
+        return JSON.stringify(example, null, 2);
+    }
+
+    // Check if parameter is a tuple type
+    function isTupleType(param: AbiParameter): boolean {
+        return param.type === "tuple" || param.type.startsWith("tuple");
+    }
+
     function methodLabel(fn: AbiFunction) {
         let returns = "";
         if (fn.outputs?.length > 0) {
@@ -625,7 +727,6 @@
             walletAddress = account.address ?? "";
             accountStatus =
                 (account.status as typeof accountStatus) ?? "disconnected";
-            updateWalletMismatch();
         });
         const unsubscribeNetwork = appKit.subscribeNetwork?.(({ chainId }) => {
             activeChainId =
@@ -638,7 +739,6 @@
         const account = appKit.getAccount();
         if (account?.address) {
             walletAddress = account.address;
-            updateWalletMismatch();
         }
 
         return () => {
@@ -923,16 +1023,6 @@
         </div>
     {/if}
 
-    {#if walletMismatch}
-        <div class="wallet-warning">
-            <p>
-                当前连接钱包 {walletAddress} 与该合约所属钱包 {routeWalletAddress}
-                不一致。
-            </p>
-            <p class="muted">你仍可调用读方法，但写方法需要切换到目标钱包。</p>
-        </div>
-    {/if}
-
     <section class="contract-panel">
         {#if loadingContract}
             <p class="muted">加载合约数据中...</p>
@@ -946,11 +1036,6 @@
             {#if !walletAddress}
                 <p class="notice warning">
                     连接钱包后即可发送写方法；读方法可直接调用。
-                </p>
-            {:else if walletMismatch}
-                <p class="notice warning">
-                    当前连接钱包 {walletAddress} 与目标钱包 {routeWalletAddress}
-                    不一致，仅可调用读方法。
                 </p>
             {/if}
             <div class="methods-grid">
@@ -998,19 +1083,52 @@
                                                         >{input.name ??
                                                             `arg${index}`} · {input.type}</span
                                                     >
-                                                    <input
-                                                        placeholder="输入参数"
-                                                        value={methodStates[key]
-                                                            .inputs[index]}
-                                                        oninput={(event) =>
-                                                            handleInputChange(
-                                                                key,
-                                                                index,
-                                                                event
-                                                                    .currentTarget
-                                                                    .value,
+                                                    {#if isTupleType(input)}
+                                                        <textarea
+                                                            placeholder={getInputPlaceholder(
+                                                                input,
                                                             )}
-                                                    />
+                                                            rows="3"
+                                                            value={methodStates[
+                                                                key
+                                                            ].inputs[index]}
+                                                            oninput={(event) =>
+                                                                handleInputChange(
+                                                                    key,
+                                                                    index,
+                                                                    event
+                                                                        .currentTarget
+                                                                        .value,
+                                                                )}
+                                                        ></textarea>
+                                                        <details
+                                                            class="tuple-hint"
+                                                        >
+                                                            <summary
+                                                                >查看结构体格式</summary
+                                                            >
+                                                            <pre>{formatTupleStructure(
+                                                                    input,
+                                                                )}</pre>
+                                                        </details>
+                                                    {:else}
+                                                        <input
+                                                            placeholder={getInputPlaceholder(
+                                                                input,
+                                                            )}
+                                                            value={methodStates[
+                                                                key
+                                                            ].inputs[index]}
+                                                            oninput={(event) =>
+                                                                handleInputChange(
+                                                                    key,
+                                                                    index,
+                                                                    event
+                                                                        .currentTarget
+                                                                        .value,
+                                                                )}
+                                                        />
+                                                    {/if}
                                                 </label>
                                             {/each}
                                         </div>
@@ -1054,6 +1172,11 @@
                                             </p>
                                             <p class="method-signature">
                                                 {methodLabel(method)}
+                                                {#if method.stateMutability === "payable"}
+                                                    <span class="payable-badge"
+                                                        >payable</span
+                                                    >
+                                                {/if}
                                             </p>
                                         </div>
                                         <button
@@ -1066,6 +1189,27 @@
                                                 : "发送交易"}
                                         </button>
                                     </div>
+                                    {#if method.stateMutability === "payable"}
+                                        <div class="inputs payable-input">
+                                            <label>
+                                                <span class="payable-label"
+                                                    >💰 发送 ETH 数量</span
+                                                >
+                                                <input
+                                                    type="text"
+                                                    placeholder="0.0"
+                                                    value={methodStates[key]
+                                                        .value ?? ""}
+                                                    oninput={(event) => {
+                                                        methodStates[
+                                                            key
+                                                        ].value =
+                                                            event.currentTarget.value;
+                                                    }}
+                                                />
+                                            </label>
+                                        </div>
+                                    {/if}
                                     {#if method.inputs?.length}
                                         <div class="inputs">
                                             {#each method.inputs as input, index}
@@ -1074,19 +1218,52 @@
                                                         >{input.name ??
                                                             `arg${index}`} · {input.type}</span
                                                     >
-                                                    <input
-                                                        placeholder="输入参数"
-                                                        value={methodStates[key]
-                                                            .inputs[index]}
-                                                        oninput={(event) =>
-                                                            handleInputChange(
-                                                                key,
-                                                                index,
-                                                                event
-                                                                    .currentTarget
-                                                                    .value,
+                                                    {#if isTupleType(input)}
+                                                        <textarea
+                                                            placeholder={getInputPlaceholder(
+                                                                input,
                                                             )}
-                                                    />
+                                                            rows="3"
+                                                            value={methodStates[
+                                                                key
+                                                            ].inputs[index]}
+                                                            oninput={(event) =>
+                                                                handleInputChange(
+                                                                    key,
+                                                                    index,
+                                                                    event
+                                                                        .currentTarget
+                                                                        .value,
+                                                                )}
+                                                        ></textarea>
+                                                        <details
+                                                            class="tuple-hint"
+                                                        >
+                                                            <summary
+                                                                >查看结构体格式</summary
+                                                            >
+                                                            <pre>{formatTupleStructure(
+                                                                    input,
+                                                                )}</pre>
+                                                        </details>
+                                                    {:else}
+                                                        <input
+                                                            placeholder={getInputPlaceholder(
+                                                                input,
+                                                            )}
+                                                            value={methodStates[
+                                                                key
+                                                            ].inputs[index]}
+                                                            oninput={(event) =>
+                                                                handleInputChange(
+                                                                    key,
+                                                                    index,
+                                                                    event
+                                                                        .currentTarget
+                                                                        .value,
+                                                                )}
+                                                        />
+                                                    {/if}
                                                 </label>
                                             {/each}
                                         </div>
@@ -1721,6 +1898,78 @@
         margin: 0.2rem 0 0;
         color: #94a3b8;
         font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .payable-badge {
+        display: inline-block;
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        color: #fff;
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.15rem 0.5rem;
+        border-radius: 0.375rem;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+    }
+
+    .payable-input {
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+    }
+
+    .payable-label {
+        color: #f59e0b;
+        font-weight: 500;
+    }
+
+    .tuple-hint {
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .tuple-hint summary {
+        color: #60a5fa;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .tuple-hint summary:hover {
+        text-decoration: underline;
+    }
+
+    .tuple-hint pre {
+        margin-top: 0.5rem;
+        padding: 0.75rem;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 0.5rem;
+        font-size: 0.75rem;
+        color: #94a3b8;
+        overflow-x: auto;
+    }
+
+    .inputs textarea {
+        width: 100%;
+        min-height: 60px;
+        padding: 0.5rem;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 0.5rem;
+        background: rgba(15, 23, 42, 0.6);
+        color: #e2e8f0;
+        font-family: monospace;
+        font-size: 0.85rem;
+        resize: vertical;
+    }
+
+    .inputs textarea:focus {
+        outline: none;
+        border-color: #3b82f6;
     }
 
     .inputs {
