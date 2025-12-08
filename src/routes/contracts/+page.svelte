@@ -2,7 +2,7 @@
     import { onMount } from "svelte";
     import { browser } from "$app/environment";
     import { appKit } from "$lib/appkit";
-    import { supportedEvmNetworks } from "$lib/networks";
+    import { supportedEvmNetworks, chainLogos } from "$lib/networks";
     import { API_BASE } from "$lib/constants";
 
     type StoredContract = {
@@ -19,8 +19,10 @@
     const chainOptions = supportedEvmNetworks.map((network) => ({
         id: Number(network.id),
         label: network.name ?? `Chain ${network.id}`,
+        logo: chainLogos[Number(network.id)] ?? "",
     }));
     const chainLabel = new Map(chainOptions.map((c) => [c.id, c.label]));
+    const chainLogo = new Map(chainOptions.map((c) => [c.id, c.logo]));
 
     let contracts = $state<StoredContract[]>([]);
     let contractsLoading = $state(false);
@@ -128,14 +130,29 @@
                                 href={`/${walletAddress}/${contract.chain_id}/${contract.contract_address}`}
                                 target="_blank"
                             >
-                                <div>
-                                    <p class="item-title">{contract.name}</p>
-                                    <p class="item-secondary">
-                                        {chainLabel.get(
-                                            Number(contract.chain_id),
-                                        ) ?? `Chain ${contract.chain_id}`}
-                                        · {contract.contract_address}
-                                    </p>
+                                <div class="item-info">
+                                    {#if chainLogo.get(Number(contract.chain_id))}
+                                        <img
+                                            src={chainLogo.get(
+                                                Number(contract.chain_id),
+                                            )}
+                                            alt={chainLabel.get(
+                                                Number(contract.chain_id),
+                                            ) ?? "Chain"}
+                                            class="chain-logo"
+                                        />
+                                    {/if}
+                                    <div>
+                                        <p class="item-title">
+                                            {contract.name}
+                                        </p>
+                                        <p class="item-secondary">
+                                            {chainLabel.get(
+                                                Number(contract.chain_id),
+                                            ) ?? `Chain ${contract.chain_id}`}
+                                            · {contract.contract_address}
+                                        </p>
+                                    </div>
                                 </div>
                                 <span class="badge small">
                                     ABI {getAbiLength(contract)}
@@ -224,6 +241,20 @@
     .item-link:hover {
         background: rgba(59, 130, 246, 0.12);
         border-radius: inherit;
+    }
+
+    .item-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .chain-logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        object-fit: cover;
+        flex-shrink: 0;
     }
 
     .item-title {

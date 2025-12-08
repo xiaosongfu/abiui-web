@@ -2,7 +2,11 @@
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
     import { appKit } from "$lib/appkit";
-    import { defaultNetwork, supportedEvmNetworks } from "$lib/networks";
+    import {
+        defaultNetwork,
+        supportedEvmNetworks,
+        chainLogos,
+    } from "$lib/networks";
     import { API_BASE } from "$lib/constants";
 
     type StoredContract = {
@@ -19,10 +23,12 @@
         label: network.name ?? `Chain ${network.id}`,
         badge: network.testnet ? "Testnet" : "Mainnet",
         symbol: network.nativeCurrency?.symbol ?? "",
+        logo: chainLogos[Number(network.id)] ?? "",
     }));
     const abiPlaceholder = '[{"type":"function","name":"transfer"}]';
 
     const chainLabel = new Map(chainOptions.map((c) => [c.id, c.label]));
+    const chainLogo = new Map(chainOptions.map((c) => [c.id, c.logo]));
 
     let walletAddress = $state("");
     let contracts = $state<StoredContract[]>([]);
@@ -314,14 +320,29 @@
                                 href={`/${walletAddress}/${contract.chain_id}/${contract.contract_address}`}
                                 target="_blank"
                             >
-                                <div>
-                                    <p class="item-title">{contract.name}</p>
-                                    <p class="item-secondary">
-                                        {chainLabel.get(
-                                            Number(contract.chain_id),
-                                        ) ?? `Chain ${contract.chain_id}`}
-                                        · {contract.contract_address}
-                                    </p>
+                                <div class="item-info">
+                                    {#if chainLogo.get(Number(contract.chain_id))}
+                                        <img
+                                            src={chainLogo.get(
+                                                Number(contract.chain_id),
+                                            )}
+                                            alt={chainLabel.get(
+                                                Number(contract.chain_id),
+                                            ) ?? "Chain"}
+                                            class="chain-logo"
+                                        />
+                                    {/if}
+                                    <div>
+                                        <p class="item-title">
+                                            {contract.name}
+                                        </p>
+                                        <p class="item-secondary">
+                                            {chainLabel.get(
+                                                Number(contract.chain_id),
+                                            ) ?? `Chain ${contract.chain_id}`}
+                                            · {contract.contract_address}
+                                        </p>
+                                    </div>
                                 </div>
                                 <span class="badge small">
                                     ABI {getAbiLength(contract)}
@@ -504,8 +525,8 @@
     }
 
     textarea {
-        font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas,
-            monospace;
+        font-family:
+            "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
     }
 
     button {
@@ -581,6 +602,20 @@
     .item-link:hover {
         background: rgba(59, 130, 246, 0.08);
         border-radius: inherit;
+    }
+
+    .item-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .chain-logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        object-fit: cover;
+        flex-shrink: 0;
     }
 
     .item-title {
